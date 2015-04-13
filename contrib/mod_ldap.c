@@ -142,7 +142,9 @@ static char *ldap_dn, *ldap_dnpass,
             *ldap_attr_memberuid = "memberUid",
             *ldap_attr_ftpquota = "ftpQuota",
             *ldap_attr_ftpquota_profiledn = "ftpQuotaProfileDN",
-            *ldap_attr_ssh_pubkey = "sshPublicKey";
+            *ldap_attr_ssh_pubkey = "sshPublicKey",
+	    *ldap_attr_wrap2_hosts_allowed = "HostsAllowed",
+	    *ldap_attr_wrap2_hosts_denied = "HostsDenied";
 #ifdef HAS_LDAP_INITIALIZE
 static char *ldap_server_url;
 #endif /* HAS_LDAP_INITIALIZE */
@@ -167,6 +169,8 @@ static int ldap_use_tls = 0;
 static LDAP *ld = NULL;
 static array_header *cached_quota = NULL;
 static array_header *cached_ssh_pubkeys = NULL;
+static array_header *cached_wrap2_clients = NULL;
+static array_header *cached_wrap2_options = NULL;
 
 static void pr_ldap_unbind(void) {
   int res;
@@ -1041,6 +1045,76 @@ static unsigned char pr_ldap_ssh_pubkey_lookup(pool *p, char *filter_template,
   return TRUE;
 }
 
+
+static unsigned char pr_ldap_wrap2_clients_lookup(pool *p, char *filter_template,
+    char *attr, const char *replace, char *basedn) {
+  char *filter = NULL,
+       *attrs[] = {
+          ldap_attr_wrap2_hosts_allowed, NULL,
+  };
+  if (attr) {
+    attrs[0] = attr;
+  }
+
+  int num_keys, i;
+  LDAPMessage *result, *e;
+  LDAP_VALUE_T **values;
+
+  if (basedn == NULL) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
+      "no LDAP base DN specified for user lookups, declining SSH publickey "
+      "lookup request");
+    return FALSE;
+  }
+
+  filter = pr_ldap_interpolate_filter(p, filter_template, replace);
+  if (filter == NULL) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,"filtro vacio");
+    return FALSE;
+  }
+
+  result = pr_ldap_search(basedn, filter, attrs, 2, TRUE);
+  if (result == NULL) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,"NO hay nada");
+    return FALSE;
+  }
+
+  if (ldap_count_entries(ld, result) > 1) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
+      "LDAP search for SSH publickey using DN %s, filter %s returned multiple "
+      "entries, aborting query", basedn, filter);
+    ldap_msgfree(result);
+    return FALSE;
+  }
+
+  e = ldap_first_entry(ld, result);
+  if (e == NULL) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
+      "LDAP search for SSH publickey using DN %s, filter %s returned "
+      "no entries", basedn, filter);
+    ldap_msgfree(result);
+    return FALSE;
+  }
+
+  values = LDAP_GET_VALUES(ld, e, attrs[0]);
+  if (values == NULL) {
+    return FALSE;
+  }
+
+  num_keys = LDAP_COUNT_VALUES(values);
+  cached_wrap2_clients = make_array(p, num_keys, sizeof(char *));
+  for (i = 0; i < num_keys; ++i) {
+    *((char **) push_array(cached_wrap2_clients)) = pstrdup(p,
+      LDAP_VALUE(values, i));
+      (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,"LDAP search for wrap2 %s",
+      LDAP_VALUE(values, i));
+  }
+  LDAP_VALUE_FREE(values);
+
+  ldap_msgfree(result);
+  return TRUE;
+}
+
 static struct group *pr_ldap_getgrnam(pool *p, const char *group_name) {
   char *group_attrs[] = {
     ldap_attr_cn, ldap_attr_gidnumber, ldap_attr_memberuid, NULL,
@@ -1157,6 +1231,50 @@ MODRET handle_ldap_ssh_pubkey_lookup(cmd_rec *cmd) {
   }
 
   return mod_create_data(cmd, cached_ssh_pubkeys);
+}
+
+MODRET handle_ldap_wrap2_clients_lookup(cmd_rec *cmd) {
+  if (ldap_do_users == FALSE) {
+    return PR_DECLINED(cmd);
+  }
+
+  if (cached_wrap2_clients != NULL &&
+      strcasecmp(((char **) cached_wrap2_clients->elts)[0], cmd->argv[0]) == 0) {
+
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
+      "returning cached hosts for wrap2 clients %s", cmd->argv[0]);
+    return mod_create_data(cmd, cached_wrap2_clients);
+  }
+
+  pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION," args: ,%s,%s,%s,",cmd->argv[0],cmd->argv[1],cmd->argv[2]);
+  if (pr_ldap_wrap2_clients_lookup(cmd->tmp_pool, ldap_user_name_filter,
+      cmd->argv[1], cmd->argv[2], ldap_user_basedn) == FALSE) {
+      (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,"devuelvbo %s",cmd->argv[0]);
+    return PR_DECLINED(cmd);
+  }
+
+  return mod_create_data(cmd, cached_wrap2_clients);
+}
+
+MODRET handle_ldap_wrap2_options_lookup(cmd_rec *cmd) {
+  if (ldap_do_users == FALSE) {
+    return PR_DECLINED(cmd);
+  }
+
+  if (cached_wrap2_options != NULL &&
+      strcasecmp(((char **) cached_wrap2_options->elts)[0], cmd->argv[0]) == 0) {
+
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
+      "returning cached hosts for wrap2 options %s", cmd->argv[0]);
+    return mod_create_data(cmd, cached_wrap2_options);
+  }
+
+  if (pr_ldap_ssh_pubkey_lookup(cmd->tmp_pool, ldap_user_name_filter,
+      cmd->argv[0], ldap_user_basedn) == FALSE) {
+    return PR_DECLINED(cmd);
+  }
+
+  return mod_create_data(cmd, cached_wrap2_options);
 }
 
 MODRET ldap_auth_setpwent(cmd_rec *cmd) {
@@ -2185,7 +2303,15 @@ static int ldap_sess_init(void) {
       } else if (strcasecmp(c->argv[0], "ftpQuotaProfileDN") == 0) {
         ldap_attr_ftpquota_profiledn = pstrdup(session.pool, c->argv[1]);
 
+      } else if (strcasecmp(c->argv[0], "HostsAllowed") == 0) {
+        ldap_attr_wrap2_hosts_allowed = pstrdup(session.pool, c->argv[1]);
+
+      } else if (strcasecmp(c->argv[0], "HostsDenied") == 0) {
+        ldap_attr_wrap2_hosts_denied = pstrdup(session.pool, c->argv[1]);
+
       }
+
+
     } while ((c = find_config_next(c, c->next, CONF_PARAM, "LDAPAttr", FALSE)));
   }
 
@@ -2320,6 +2446,8 @@ static conftable ldap_conftab[] = {
 static cmdtable ldap_cmdtab[] = {
   { HOOK, "ldap_quota_lookup",		G_NONE, handle_ldap_quota_lookup, FALSE, FALSE},
   { HOOK, "ldap_ssh_publickey_lookup",	G_NONE, handle_ldap_ssh_pubkey_lookup, FALSE, FALSE},
+  { HOOK, "ldap_wrap2_clients_lookup",	G_NONE, handle_ldap_wrap2_clients_lookup, FALSE, FALSE},
+  { HOOK, "ldap_wrap2_options_lookup",	G_NONE, handle_ldap_wrap2_options_lookup, FALSE, FALSE},
 
   { 0, NULL}
 };
