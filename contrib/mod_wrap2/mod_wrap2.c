@@ -1838,6 +1838,7 @@ MODRET wrap2_pre_pass(cmd_rec *cmd) {
     }
 
     pr_response_send(R_530, "%s", msg ? msg : _("Access denied"));
+    pr_log_pri(PR_LOG_INFO, "WRAP2 access denied to user '%s' from %s",user, wrap2_get_hostaddr(((wrap2_conn_t *)&conn)->client));
     pr_session_disconnect(&wrap2_module, PR_SESS_DISCONNECT_MODULE_ACL, NULL);
   }
 
