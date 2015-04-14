@@ -91,7 +91,7 @@ static array_header *ldaptab_fetch_clients_cb(wrap2_table_t *ldaptab,
     errno = EPERM;
     return NULL;
   }
-  /* Prepare the SELECT query. */
+  /* Prepare the users query. */
   ldap_cmd = ldap_cmd_create(tmp_pool, 3, "ldap_lookup", attr, name);
 
 
