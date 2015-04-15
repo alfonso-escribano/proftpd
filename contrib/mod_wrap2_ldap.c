@@ -84,15 +84,16 @@ static array_header *ldaptab_fetch_clients_cb(wrap2_table_t *ldaptab,
   attr = ((char **) ldaptab->tab_data)[WRAP2_LDAP_CLIENT_ATTR_IDX];
 
 /* Find the cmdtable for the ldap_ssh_publickey_lookup command. */
-  ldap_cmdtab = pr_stash_get_symbol(PR_SYM_HOOK, "ldap_wrap2_clients_lookup",
+  ldap_cmdtab = pr_stash_get_symbol(PR_SYM_HOOK, "ldap_wrap2_lookup",
     NULL, NULL);
   if (ldap_cmdtab == NULL) {
-    wrap2_log("unable to find LDAP hook symbol 'ldap_wrap2_clients_lookup'");
+    wrap2_log("unable to find LDAP hook symbol 'ldap_wrap2_lookup':"
+    "perhaps your proftpd.conf needs 'LoadModule mod_ldap.c'?");
     errno = EPERM;
     return NULL;
   }
   /* Prepare the users query. */
-  ldap_cmd = ldap_cmd_create(tmp_pool, 3, "ldap_lookup", attr, name);
+  ldap_cmd = ldap_cmd_create(tmp_pool, 3, "ldap_lookup_clients", attr, name);
 
 
   ldap_res = pr_module_call(ldap_cmdtab->m, ldap_cmdtab->handler, ldap_cmd);
@@ -182,7 +183,75 @@ static array_header *ldaptab_fetch_daemons_cb(wrap2_table_t *ldaptab,
 
 static array_header *ldaptab_fetch_options_cb(wrap2_table_t *ldaptab,
     const char *name) {
+  pool *tmp_pool = NULL;
+  cmdtable *ldap_cmdtab = NULL;
+  cmd_rec *ldap_cmd = NULL;
+  modret_t *ldap_res = NULL;
+  array_header *ldap_data = NULL;
+  char *attr = NULL, **values = NULL;
   array_header *options_list = NULL;
+
+  /* Allocate a temporary pool for the duration of this read. */
+  tmp_pool = make_sub_pool(ldaptab->tab_pool);
+
+  attr = ((char **) ldaptab->tab_data)[WRAP2_LDAP_OPTION_ATTR_IDX];
+
+  /* The options-attr is not necessary.  Skip if not present. */
+  if (!attr) {
+    destroy_pool(tmp_pool);
+    return NULL;
+  }
+
+  /* Find the cmdtable for the ldap_ssh_wrap2_lookup command. */
+  ldap_cmdtab = pr_stash_get_symbol(PR_SYM_HOOK, "ldap_wrap2_lookup",
+    NULL, NULL);
+  if (ldap_cmdtab == NULL) {
+    wrap2_log("unable to find LDAP hook symbol 'ldap_wrap2_lookup':"
+    "perhaps your proftpd.conf needs 'LoadModule mod_ldap.c'?");
+    errno = EPERM;
+    return NULL;
+  }
+  /* Prepare the users query. */
+  ldap_cmd = ldap_cmd_create(tmp_pool, 3, "ldap_lookup_options", attr, name);
+
+
+  ldap_res = pr_module_call(ldap_cmdtab->m, ldap_cmdtab->handler, ldap_cmd);
+  if (ldap_res == NULL ||
+      MODRET_ISERROR(ldap_res)) {
+      wrap2_log("error performing LDAP search");
+    destroy_pool(tmp_pool);
+    errno = EPERM;
+    return NULL;
+  }
+
+  ldap_data = (array_header *) ldap_res->data;
+
+  values = (char **) ldap_data->elts;
+
+  if (ldap_data->nelts < 1) {
+    wrap2_log("LDAP attr search '%s' returned no data; "
+      "see the mod_ldap.c LDAPLogFile for more details", attr);
+    destroy_pool(tmp_pool);
+    return NULL;
+  }
+
+  options_list = make_array(ldaptab->tab_pool, ldap_data->nelts, sizeof(char *));
+  *((char **) push_array(options_list)) = pstrdup(ldaptab->tab_pool, values[0]);
+
+  if (ldap_data->nelts > 1) {
+    register unsigned int i = 0;
+
+    for (i = 1; i < ldap_data->nelts; i++) {
+      if (values[i] == NULL) {
+        continue;
+      }
+
+      *((char **) push_array(options_list)) = pstrdup(ldaptab->tab_pool,
+        values[i]);
+    }
+  }
+
+  destroy_pool(tmp_pool);
 
   return options_list;
 }
@@ -236,7 +305,7 @@ static wrap2_table_t *ldaptab_open_cb(pool *parent_pool, char *srcinfo) {
   ((char **) tab->tab_data)[WRAP2_LDAP_OPTION_ATTR_IDX] =
     (options_attr ? pstrdup(tab->tab_pool, options_attr) : NULL);
 
-  tab->tab_name = pstrcat(tab->tab_pool, "SQL(", srcinfo, ")", NULL);
+  tab->tab_name = pstrcat(tab->tab_pool, "LDAP(", srcinfo, ")", NULL);
 
   /* Set the necessary callbacks. */
   tab->tab_close = ldaptab_close_cb;

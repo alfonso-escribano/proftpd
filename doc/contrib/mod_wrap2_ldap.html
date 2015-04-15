@@ -1,0 +1,137 @@
+<!-- $Id: mod_wrap2_ldap.html,v 1.3 2013-05-12 23:13:43 castaglia Exp $ -->
+<!-- $Source: /home/proftpd-core/backup/proftp-cvsroot/proftpd/doc/contrib/mod_wrap2_ldap.html,v $ -->
+
+<html>
+<head>
+<title>ProFTPD module mod_wrap2_ldap</title>
+</head>
+
+<body bgcolor=white>
+
+<hr>
+<center>
+<h2><b>ProFTPD module <code>mod_wrap2_ldap</code></b></h2>
+</center>
+<hr>
+
+This <code>mod_wrap2</code> submodule is contained in the
+<code>mod_wrap2_ldap.c</code> file, and is not compiled by default.  See the
+<code>mod_wrap2</code> <a href="mod_wrap2.html#Installation">installation</a>
+instructions.
+
+<p>
+This submodule provides the LDAP &quot;driver&quot; for storing
+IP/DNS-based access control information in LDAP.
+
+<h2>Author</h2>
+<p>
+Please contact Alfonso Escribano &lt;alfonso.escribano <i>at</i> meteologica.com&gt; with any
+questions, concerns, or suggestions regarding this module.
+
+<p>
+<hr><h2><a name="LDAPAttributes">LDAP Access Attributes</a></h2>
+The <code>mod_wrap2_ldap</code> module supports the &quot;ldap&quot; string
+for the <em>source-type</em> parameter of the
+<a href="mod_wrap2.html#WrapUserTables"><code>WrapUserTables</code></a>,
+<a href="mod_wrap2.html#WrapGroupTables"><code>WrapGroupTables</code></a>,
+and
+<a href="mod_wrap2.html#WrapTables"><code>WrapTables</code></a>,
+configuration directives. If the &quot;ldap&quot; <em>source-type</em> is used,
+then the <em>source-info</em> parameter must be as described below.  Note
+that support for LDAP-based access tables <b>requires</b> the use of
+<code>mod_ldap</code>.
+
+<p>
+<code>mod_wrap2_ldap</code> requires LDAP-related configuration
+directives: <code>LDAPServer</code>, and ,
+<code>LDAPUsers</code> <code>LDAPGroups</code> directives.  
+The <code>LDAPServer</code> is
+necessary to allow the module to connect to the LDAP server.  The other
+directives define the LDAP base queries that will be used by <code>mod_wrap2</code>
+for its retrieval operations involving access data.
+
+<p>
+When using LDAP and <code>mod_wrap2</code>, the access attributes should appear
+in the directory named by the <code>LDAPServer</code> directive, which
+will probably also contain the authentication information .  This way
+your <code>proftpd</code>-specific tables are kept together.  Also, it is
+probably better to use a connection policy of PERSESSION, otherwise there will
+be more overhead associated with each new connection made to the database for
+each transaction.
+
+<p>
+One <code>attribute</code> is needed to <code>SEARCH</code> access
+information from the allow table, and one to <code>SEARCH</code> access
+information from the deny table.  These queries should return a list of words,
+where each word is a host name, host address, pattern, or wildcard (see
+<a href="mod_wrap2.html#AccessRules">here</a> for how these things are
+defined).  Failure to define either of these <code>attributes</code>
+directives will cause an error during <code>mod_wrap2_ldap</code>'s operation.
+
+<p>
+Optionally, other <code>attributes</code> directives can be defined
+to look up access <a href="mod_wrap2.html#AccessOptions">options</a> from
+the allow and deny tables.
+
+<p>
+For LDAP, the format for the <code>WrapUserTables</code>,
+<code>WrapGroupTables</code>, and <code>WrapTables</code> directives is:
+<pre>
+  WrapTables ldap:/<i>allow-<code>attribute</code></i>[/<i>allow-options-<code>attribute</code></i>] \
+    ldap:<i>deny-<code>attribute</code></i>[/<i>deny-options-<code>attribute</code></i>]
+</pre>
+where the <i>allow-options-<code>attribute</code></i> and
+<i>deny-options-<code>attribute</code></i> portions of the string are
+optional.
+
+<p>
+For <code>WrapGroupTables</code> <code>attribute</code> has to start with "Group"
+
+<p>
+<b>LDAP Access Attributes Example</b><br>
+Here are example <code>attribute</code> directives to help demonstrate
+how the <code>mod_ldap</code> hooks are used by <code>mod_wrap2</code>.
+These example LDAP statements assume the existence of two attributes: a
+<code>wrapallow</code> attribute that defines allowed clients, and a
+<code>wrapdeny</code> attribute that defines the denied clients.
+
+<pre>
+  # Access attributes for users (with options)
+  WrapUserTables user1,user2 ldap:/HostsAllowed/OptionsAllowed ldap:/HostsDenied/OptionsDenied
+
+  # Access attributes for groups (with options).  Note that this directive
+  # uses the same LDAP Attributes used for looking up users. 
+  WrapGroupTables group1,group2 ldap:/GroupHostsAllowed/GroupOptionsAllowed \
+    ldap:/GroupHostsDenied/GroupOptionsDenied
+
+  # Access attributes for everyone else (without options)
+  WrapTables ldap:/HostsAllowed ldap:/HostsDenied
+</pre>
+
+<p>
+
+<p>
+When constructing the client and options lists to return to
+<code>mod_wrap2</code>'s access control engine, <code>mod_wrap2_ldap</code> will
+parse each returned entrie separately, handling both comma- and space-limited
+names in a row, into client list items.  This means that the administrator can
+store multiple client and option tokens in multiple rows, as in the above
+schema, or the administrator can choose to store all of the clients and/or
+options in a single row, in an appropriately formatted string.
+
+<p>
+<hr>
+Author: <i>$Author: castaglia $</i><br>
+Last Updated: <i>$Date: 2014-04-15 23:13:43 $</i><br>
+
+<br><hr>
+
+<font size=2><b><i>
+&copy; Copyright 2000-2013 TJ Saunders<br>
+ All Rights Reserved<br>
+</i></b></font>
+
+<hr><br>
+</body>
+</html>
+

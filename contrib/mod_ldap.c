@@ -1045,13 +1045,17 @@ static unsigned char pr_ldap_ssh_pubkey_lookup(pool *p, char *filter_template,
 }
 
 
-static unsigned char pr_ldap_wrap2_clients_lookup(pool *p, char *filter_template,
+static unsigned char pr_ldap_wrap2_lookup(pool *p, char *filter_template,
     char *attr, const char *replace, char *basedn) {
   char *filter = NULL,
        *attrs[] = {
           ldap_attr_wrap2_hosts_allowed, NULL,
   };
-  if (attr) {
+  if (attr == NULL ) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
+      "no LDAP attr specified for lookup, declining LDAP wrap2 lookup request ");
+    return FALSE;
+  } else {
     attrs[0] = attr;
   }
 
@@ -1061,14 +1065,17 @@ static unsigned char pr_ldap_wrap2_clients_lookup(pool *p, char *filter_template
 
   if (basedn == NULL) {
     (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
-      "no LDAP base DN specified for user lookups, declining LDAP wrap2 "
-      "lookup request");
+      "no LDAP base DN specified for lookups, declining LDAP wrap2 lookup request");
     return FALSE;
   }
 
-  filter = pr_ldap_interpolate_filter(p, filter_template, replace);
-  if (filter == NULL) {
-    return FALSE;
+  if (filter_template) {
+    filter = pr_ldap_interpolate_filter(p, filter_template, replace);
+    if (filter == NULL) {
+      return FALSE;
+    }
+  } else {
+    filter = NULL;
   }
 
   result = pr_ldap_search(basedn, filter, attrs, 2, TRUE);
@@ -1081,7 +1088,7 @@ static unsigned char pr_ldap_wrap2_clients_lookup(pool *p, char *filter_template
 
   if (ldap_count_entries(ld, result) > 1) {
     (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
-      "LDAP search for WRAP2 client using DN %s, filter %s returned multiple "
+      "LDAP search for WRAP2 using DN %s, filter %s returned multiple "
       "entries, aborting query", basedn, filter);
     ldap_msgfree(result);
     return FALSE;
@@ -1090,7 +1097,7 @@ static unsigned char pr_ldap_wrap2_clients_lookup(pool *p, char *filter_template
   e = ldap_first_entry(ld, result);
   if (e == NULL) {
     (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION,
-      "LDAP search for WRAP2 client using DN %s, filter %s returned "
+      "LDAP search for WRAP2 using DN %s, filter %s returned "
       "no entries", basedn, filter);
     ldap_msgfree(result);
     return FALSE;
@@ -1233,14 +1240,55 @@ MODRET handle_ldap_ssh_pubkey_lookup(cmd_rec *cmd) {
   return mod_create_data(cmd, cached_ssh_pubkeys);
 }
 
-MODRET handle_ldap_wrap2_clients_lookup(cmd_rec *cmd) {
+MODRET handle_ldap_wrap2_lookup(cmd_rec *cmd) {
+  char *attr = NULL, *name = NULL;
+  int max_replace= 1;
+  int orig_scope, res;
+
   if (ldap_do_users == FALSE) {
     return PR_DECLINED(cmd);
   }
+  //We cutoff Group first part or attribute
+  attr= pr_str_replace(cmd->tmp_pool,max_replace, cmd->argv[1], "Group", "", NULL);
+  name=cmd->argv[2];
 
-  if (pr_ldap_wrap2_clients_lookup(cmd->tmp_pool, ldap_user_name_filter,
-      cmd->argv[1], cmd->argv[2], ldap_user_basedn) == FALSE) {
-    return PR_DECLINED(cmd);
+  if (strcmp(name, "") == 0) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "doing WRAP2 global lookup with attr"
+    ": %s, basedn: %s",attr,ldap_user_basedn);
+    //Change LDAP search scope to base temporaly
+    orig_scope = ldap_search_scope;
+    ldap_search_scope = LDAP_SCOPE_BASE;
+    res = pr_ldap_wrap2_lookup(cmd->tmp_pool, "(objectClass=*)",attr, name, ldap_user_basedn); 
+    ldap_search_scope = orig_scope;
+
+    if (res == FALSE) {
+      return PR_DECLINED(cmd);
+    } else {
+      return mod_create_data(cmd, cached_wrap2_clients);
+    }
+  }
+
+  if (strncasecmp(cmd->argv[1], "Group", strlen("Group")) != 0) {
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "doing WRAP2 user lookup with attr"
+    ": %s, user: %s, basedn: %s and filter: %s",attr,name,ldap_user_basedn,ldap_user_name_filter);
+    if (ldap_do_users == FALSE) {
+      return PR_DECLINED(cmd);
+    }
+    if (pr_ldap_wrap2_lookup(cmd->tmp_pool, ldap_user_name_filter,
+     attr, name, ldap_user_basedn) == FALSE) {
+        return PR_DECLINED(cmd);
+    }
+  } else {
+
+    (void) pr_log_writefile(ldap_logfd, MOD_LDAP_VERSION, "doing WRAP2 group lookup with attr"
+    ": %s, group: %s, basedn: %s and filter: %s",attr,name,ldap_user_basedn,ldap_group_name_filter);
+    if (ldap_do_groups == FALSE) {
+      return PR_DECLINED(cmd);
+    }
+    if (pr_ldap_wrap2_lookup(cmd->tmp_pool, ldap_group_name_filter,
+     attr, name, ldap_gid_basedn) == FALSE) {
+        return PR_DECLINED(cmd);
+    }
   }
 
   return mod_create_data(cmd, cached_wrap2_clients);
@@ -2415,7 +2463,7 @@ static conftable ldap_conftab[] = {
 static cmdtable ldap_cmdtab[] = {
   { HOOK, "ldap_quota_lookup",		G_NONE, handle_ldap_quota_lookup, FALSE, FALSE},
   { HOOK, "ldap_ssh_publickey_lookup",	G_NONE, handle_ldap_ssh_pubkey_lookup, FALSE, FALSE},
-  { HOOK, "ldap_wrap2_clients_lookup",	G_NONE, handle_ldap_wrap2_clients_lookup, FALSE, FALSE},
+  { HOOK, "ldap_wrap2_lookup",		G_NONE, handle_ldap_wrap2_lookup, FALSE, FALSE},
 
   { 0, NULL}
 };
