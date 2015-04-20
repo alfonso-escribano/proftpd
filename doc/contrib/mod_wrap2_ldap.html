@@ -52,12 +52,9 @@ for its retrieval operations involving access data.
 
 <p>
 When using LDAP and <code>mod_wrap2</code>, the access attributes should appear
-in the directory named by the <code>LDAPServer</code> directive, which
+in the directory configured by the <code>LDAPServer</code> directive, which
 will probably also contain the authentication information .  This way
-your <code>proftpd</code>-specific tables are kept together.  Also, it is
-probably better to use a connection policy of PERSESSION, otherwise there will
-be more overhead associated with each new connection made to the database for
-each transaction.
+your <code>proftpd</code>-specific attributtes are kept together. 
 
 <p>
 One <code>attribute</code> is needed to <code>SEARCH</code> access
@@ -92,15 +89,16 @@ For <code>WrapGroupTables</code> <code>attribute</code> has to start with "Group
 Here are example <code>attribute</code> directives to help demonstrate
 how the <code>mod_ldap</code> hooks are used by <code>mod_wrap2</code>.
 These example LDAP statements assume the existence of two attributes: a
-<code>wrapallow</code> attribute that defines allowed clients, and a
-<code>wrapdeny</code> attribute that defines the denied clients.
+<code>HostsAllowed</code> attribute that defines allowed clients, and a
+<code>HostsDenied</code> attribute that defines the denied clients.
 
 <pre>
   # Access attributes for users (with options)
   WrapUserTables user1,user2 ldap:/HostsAllowed/OptionsAllowed ldap:/HostsDenied/OptionsDenied
 
   # Access attributes for groups (with options).  Note that this directive
-  # uses the same LDAP Attributes used for looking up users. 
+  # uses the same LDAP Attributes used for looking up groups. 
+  # Real attributes used are HostsAllowed/OptionsAllowed and HostsDenied/OptionsDenied
   WrapGroupTables group1,group2 ldap:/GroupHostsAllowed/GroupOptionsAllowed \
     ldap:/GroupHostsDenied/GroupOptionsDenied
 
@@ -115,19 +113,19 @@ When constructing the client and options lists to return to
 <code>mod_wrap2</code>'s access control engine, <code>mod_wrap2_ldap</code> will
 parse each returned entrie separately, handling both comma- and space-limited
 names in a row, into client list items.  This means that the administrator can
-store multiple client and option tokens in multiple rows, as in the above
+store multiple client and option tokens in multiple enries, as in the above
 schema, or the administrator can choose to store all of the clients and/or
-options in a single row, in an appropriately formatted string.
+options in a single attribute, in an appropriately formatted string.
 
 <p>
 <hr>
 Author: <i>$Author: castaglia $</i><br>
-Last Updated: <i>$Date: 2014-04-15 23:13:43 $</i><br>
+Last Updated: <i>$Date: 2015-04-20 09:13:43 $</i><br>
 
 <br><hr>
 
 <font size=2><b><i>
-&copy; Copyright 2000-2013 TJ Saunders<br>
+&copy; Copyright 2000-2015 TJ Saunders<br>
  All Rights Reserved<br>
 </i></b></font>
 
